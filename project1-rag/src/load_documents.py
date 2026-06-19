@@ -24,10 +24,8 @@ def load_pdfs(data_dir):
 
         # Step 3: loop through each page and extract text
         for page_num, page in enumerate(reader.pages):
-            # TODO: extract text from this page using pypdf's method
-            # Hint: look up PdfReader page object methods —
-            # there's a single method call that returns the page's text as a string
-            text = page.extract_text()  # <-- replace this line
+            
+            text = page.extract_text() 
 
             documents.append({
                 "filename": filename,

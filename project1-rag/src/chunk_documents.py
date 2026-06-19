@@ -22,8 +22,7 @@ def chunk_documents(documents, chunk_size=500, chunk_overlap=50):
 
     for doc in documents:
         # Step 2: split this page's text into smaller pieces
-        # TODO: call the correct method on `splitter` that takes a single
-        # string and returns a list of smaller text chunks
+        
         page_chunks = splitter.split_text(doc["text"])  
 
         for chunk_text in page_chunks:
