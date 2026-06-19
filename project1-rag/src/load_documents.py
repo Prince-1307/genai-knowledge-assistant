@@ -1,8 +1,9 @@
 import os
 from pypdf import PdfReader
 
-   # relative to src/, points to project1-rag/data
-DATA_DIR = os.path.join(os.path.dirname(__file__), "../data")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))   
+DATA_DIR = os.path.join(BASE_DIR, "..", "data")
+DB_DIR = os.path.join(BASE_DIR, "..", "chroma_db")
 
 def load_pdfs(data_dir):
     """

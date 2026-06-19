@@ -5,8 +5,9 @@ import chromadb
 from chunk_documents import chunk_documents
 from load_documents import load_pdfs
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "../data")
-DB_DIR = os.path.join(os.path.dirname(__file__), "../chroma_db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))   
+DATA_DIR = os.path.join(BASE_DIR, "..", "data")
+DB_DIR = os.path.join(BASE_DIR, "..", "chroma_db")
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")

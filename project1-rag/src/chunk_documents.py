@@ -2,9 +2,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from load_documents import load_pdfs
 import os
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "../data")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))   
+DATA_DIR = os.path.join(BASE_DIR, "..", "data")
+DB_DIR = os.path.join(BASE_DIR, "..", "chroma_db")
 
-def chunk_documents(documents, chunk_size=500, chunk_overlap=50):
+def chunk_documents(documents, chunk_size=200, chunk_overlap=50):
     """
     Takes the list of {filename, page_number, text} dicts from load_pdfs,
     splits each page's text into smaller chunks, and returns a new list:
