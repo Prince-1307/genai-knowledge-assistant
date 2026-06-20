@@ -1,36 +1,45 @@
 import os
+import re
 from dotenv import load_dotenv
 from google import genai
+from groq import Groq
 import chromadb
-import re
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))   
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
 DB_DIR = os.path.join(BASE_DIR, "..", "chroma_db")
 
 EMBED_MODEL = "models/gemini-embedding-001"
-GEN_MODEL = "gemini-2.5-flash"   # fast, free-tier friendly generative model
+GEN_MODEL = "llama-3.3-70b-versatile"
 
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+MAX_FULL_TURNS = 3
+conversation_history = []
+conversation_summary = ""
+
+
+def generate(prompt):
+    """Single place that calls Groq for text generation."""
+    response = groq_client.chat.completions.create(
+        model=GEN_MODEL,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+
+def embed_query(text):
+    result = gemini_client.models.embed_content(model=EMBED_MODEL, contents=text)
+    return result.embeddings[0].values
+
 
 def keyword_overlap_score(question, chunk_text):
-    """
-    Counts how many meaningful words from the question appear in the chunk.
-    Returns a simple overlap score.
-    """
     stopwords = {"what", "is", "the", "of", "a", "an", "in", "on", "for", "to", "and", "are", "was", "were"}
-
-    # Step 1: extract words from question, lowercase, remove punctuation
     question_words = set(re.findall(r"\w+", question.lower())) - stopwords
-
-    # Step 2: extract words from chunk_text the same way
     chunk_words = set(re.findall(r"\w+", chunk_text.lower())) - stopwords
-
-    # Step 3: count overlap
-    overlap = len(question_words & chunk_words)
-    return overlap
+    return len(question_words & chunk_words)
 
 
 def retrieve_chunks(question, top_k=5, wide_k=15):
@@ -38,41 +47,51 @@ def retrieve_chunks(question, top_k=5, wide_k=15):
     collection = db_client.get_or_create_collection(name="knowledge_base")
 
     query_embedding = embed_query(question)
-
-    # Stage 1: wide vector search
     results = collection.query(query_embeddings=[query_embedding], n_results=wide_k)
 
     documents = results["documents"][0]
     metadatas = results["metadatas"][0]
     distances = results["distances"][0]
 
-    # Stage 2: re-rank using combined score (lower distance = better, higher keyword overlap = better)
     scored = []
     for doc, meta, dist in zip(documents, metadatas, distances):
         kw_score = keyword_overlap_score(question, doc)
-        # combine: normalize distance influence vs keyword boost
-        # lower combined_score = better (we'll sort ascending)
-        combined_score = dist - (kw_score * 0.1)   # each keyword match reduces "distance" by 0.1
+        combined_score = dist - (kw_score * 0.1)
         scored.append((combined_score, doc, meta))
 
-    # Step 4: sort by combined_score ascending, take top_k
     scored.sort(key=lambda x: x[0])
     top = scored[:top_k]
 
-    # Step 5: rebuild results in the same shape build_prompt() expects
     final_documents = [item[1] for item in top]
     final_metadatas = [item[2] for item in top]
-
     return {"documents": [final_documents], "metadatas": [final_metadatas]}
 
 
-def embed_query(text):
-    result = client.models.embed_content(model=EMBED_MODEL, contents=text)
-    return result.embeddings[0].values
+def summarize_history(history):
+    history_text = ""
+    for turn in history:
+        history_text += f"Q: {turn['question']}\nA: {turn['answer']}\n\n"
+
+    prompt = f"""Summarize the following conversation concisely, preserving key facts and names mentioned, in 2-3 sentences:
+
+{history_text}
+
+Summary:"""
+    return generate(prompt)
 
 
+def manage_memory():
+    global conversation_summary, conversation_history
 
-conversation_history = []  # list of {"question":..., "answer":...}
+    if len(conversation_history) > MAX_FULL_TURNS:
+        old_turns = conversation_history[:-MAX_FULL_TURNS]
+        new_summary = summarize_history(old_turns)
+        conversation_summary = (conversation_summary + " " + new_summary).strip()
+        conversation_history = conversation_history[-MAX_FULL_TURNS:]
+
+        print(f"\n[Memory compressed. Summary so far: {conversation_summary}]")
+        print(f"[Keeping {len(conversation_history)} full turns in memory]\n")
+
 
 def build_prompt(question, results, history):
     context_blocks = []
@@ -81,16 +100,17 @@ def build_prompt(question, results, history):
     context = "\n\n---\n\n".join(context_blocks)
 
     history_text = ""
-    
     for turn in history:
         history_text += f"Q: {turn['question']}\nA: {turn['answer']}\n\n"
+
+    full_history_context = f"Earlier conversation summary: {conversation_summary}\n\n{history_text}" if conversation_summary else history_text
 
     prompt = f"""Answer the question using ONLY the context below.
 If the answer isn't in the context, say "I don't have that information in the provided documents."
 Use the conversation history to resolve references like "his", "that", "it", etc.
 
 Conversation history:
-{history_text}
+{full_history_context}
 
 Context:
 {context}
@@ -102,11 +122,11 @@ Answer:"""
 
 
 def ask(question):
+    manage_memory()
+
     results = retrieve_chunks(question)
     prompt = build_prompt(question, results, conversation_history)
-
-    response = client.models.generate_content(model=GEN_MODEL, contents=prompt)
-    answer = response.text
+    answer = generate(prompt)
 
     print("\n--- Answer ---")
     print(answer)
@@ -114,9 +134,7 @@ def ask(question):
     for meta in results["metadatas"][0]:
         print(f"- {meta['filename']}, page {meta['page_number']}")
 
-    # Step 2: save this turn to history
     conversation_history.append({"question": question, "answer": answer})
-
     return answer
 
 
@@ -126,5 +144,3 @@ if __name__ == "__main__":
         if question.lower() == "quit":
             break
         ask(question)
-
-
