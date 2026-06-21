@@ -1,0 +1,9 @@
+google-genai
+groq
+tavily-python
+pypdf
+langchain-text-splitters
+chromadb
+python-dotenv
+fastapi
+uvicorn
