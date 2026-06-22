@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-API_URL = "http://127.0.0.1:8000"  # local for now, will change to deployed URL later
+API_URL = "https://knowledge-assistant-api.onrender.com"
 
 st.set_page_config(page_title="Personal Knowledge Assistant", page_icon="🧠", layout="wide")
 st.title("Personal Knowledge Assistant")
