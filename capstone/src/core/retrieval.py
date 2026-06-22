@@ -5,6 +5,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import chromadb
 from google import genai
 import dotenv
+import io
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, "data")  # capstone/data
@@ -113,6 +114,59 @@ def search_documents(query, top_k=5, wide_k=15):
         formatted.append(f"[Source: {meta['filename']}, page {meta['page_number']}]\n{doc}")
 
     return "\n\n---\n\n".join(formatted)
+
+def add_document(file_bytes, filename):
+    """
+    Takes raw PDF bytes and a filename, chunks + embeds + stores in ChromaDB.
+    Returns number of chunks added.
+    """
+
+    client = get_gemini_client()
+    db_client = chromadb.PersistentClient(path=DB_DIR)
+    collection = db_client.get_or_create_collection(name="knowledge_base")
+
+    # Step 1: read PDF from bytes instead of file path
+    reader = PdfReader(io.BytesIO(file_bytes))
+
+    # Step 2: extract text page by page (same as before)
+    documents = []
+    for page_num, page in enumerate(reader.pages):
+        text = page.extract_text()
+        if text and text.strip():  # skip empty pages
+            documents.append({
+                "filename": filename,
+                "page_number": page_num + 1,
+                "text": text
+            })
+
+    # Step 3: chunk documents (reuse existing function)
+    chunks = chunk_documents(documents)
+
+    start_id = collection.count()
+    for chunk in chunks:
+
+        complete_chunk_id = start_id + chunk["chunk_id"]
+        embedding = embed_text(chunk["text"], client)
+        complete_chunk_id = str(complete_chunk_id)  # Ensure it's a string for ChromaDB
+        collection.add(
+            ids=[complete_chunk_id],
+            embeddings=[embedding],
+            documents=[chunk["text"]],
+            metadatas=[{"filename": chunk["filename"], "page_number": chunk["page_number"]}]
+        )
+
+    return len(chunks)
+
+
+def list_documents():
+    """Returns list of unique filenames currently in the vector store."""
+    db_client = chromadb.PersistentClient(path=DB_DIR)
+    collection = db_client.get_or_create_collection(name="knowledge_base")
+
+    result = collection.get()  # This will return all items in the collection
+    filenames = list(set(m["filename"] for m in result["metadatas"]))
+
+    return filenames
 
 
 if __name__ == "__main__":

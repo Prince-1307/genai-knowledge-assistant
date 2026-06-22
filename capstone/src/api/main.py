@@ -1,8 +1,9 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from src.core.agent import Agent
+from src.core.retrieval import add_document, list_documents
 
 load_dotenv()
 
@@ -68,3 +69,24 @@ def get_history():
     """Returns the current conversation history."""
 
     return agent.conversation_history
+
+@app.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """Upload a PDF and add it to the knowledge base."""
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    try:
+        file_bytes = await file.read()
+        chunks_added = add_document(file_bytes, file.filename)
+        return {"status": "ok", "filename": file.filename, "chunks_added": chunks_added}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/documents")
+def get_documents():
+    """Returns list of documents currently in the knowledge base."""
+    try:
+        docs = list_documents()
+        return {"documents": docs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
